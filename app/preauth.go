@@ -1,9 +1,9 @@
-package apps
+package app
 
 import (
 	"fmt"
 )
 
-func RunPostAccountConfirmationHandler() {
+func RunPreAuthenticationHandler() {
 	fmt.Println("Running account confirmation handler...")
 }
