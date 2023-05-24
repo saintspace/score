@@ -1,9 +1,10 @@
-package app
+package preauth
 
 import (
 	"fmt"
 )
 
-func RunPostAccountConfirmationHandler() {
+var Run = func() error {
 	fmt.Println("Running account confirmation handler...")
+	return nil
 }

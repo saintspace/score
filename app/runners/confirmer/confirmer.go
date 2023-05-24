@@ -1,9 +1,10 @@
-package app
+package confirmer
 
 import (
 	"fmt"
 )
 
-func RunPreAuthenticationHandler() {
+var Run = func() error {
 	fmt.Println("Running account confirmation handler...")
+	return nil
 }

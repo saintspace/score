@@ -1,4 +1,4 @@
-package app
+package server
 
 import (
 	"embed"
@@ -8,7 +8,7 @@ import (
 	"net/http"
 )
 
-func RunServer(webapp embed.FS) {
+var Run = func(webapp embed.FS) error {
 	fmt.Println("Running server...")
 
 	http.HandleFunc("/api", func(w http.ResponseWriter, r *http.Request) {
@@ -28,4 +28,5 @@ func RunServer(webapp embed.FS) {
 	if err != nil {
 		log.Fatal(err)
 	}
+	return err
 }
