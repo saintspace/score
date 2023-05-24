@@ -21,14 +21,28 @@ type KeyValueStore interface {
 	AddComplaintToEmailSubscription(email, complaintDetails string, complaintDateUnix int64) error
 	AddBounceToEmailSubscription(email, bounceType, bounceDetails string, bounceDateUnix int64) error
 	GetEmailSubscription(email string) (*models.EmailSubscription, error)
+	CreateEmailSubscriptionItem(email string, subscriptionToken string, isVerified bool) error
+	VerifyEmailSubscription(email string) error
 }
 
 type RelationalDB interface {
 	CreateUser(email, cognitoUserName string) error
 }
 
-func (s *Datastore) EmailSubscriptionItemExists(email string) (bool, error) {
+func (s *Datastore) EmailSubscriptionExists(email string) (bool, error) {
 	return s.kvStore.EmailSubscriptionItemExists(email)
+}
+
+func (s *Datastore) CreateEmailSubscription(
+	email string,
+	subscriptionToken string,
+	isVerified bool,
+) error {
+	return s.kvStore.CreateEmailSubscriptionItem(email, subscriptionToken, isVerified)
+}
+
+func (s *Datastore) VerifyEmailSubscription(email string) error {
+	return s.kvStore.VerifyEmailSubscription(email)
 }
 
 func (s *Datastore) AddComplaintToEmailSubscription(email, complaintDetails string, complaintDateUnix int64) error {

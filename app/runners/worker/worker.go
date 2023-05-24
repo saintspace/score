@@ -9,8 +9,10 @@ import (
 	"score/app/runners/worker/handler"
 	"score/app/services/aws/dynamodb"
 	"score/app/services/aws/ses"
+	"score/app/services/aws/sns"
 	"score/app/services/datastore"
 	"score/app/services/email"
+	"score/app/services/eventpub"
 	"score/app/services/mysql"
 	"score/app/services/user"
 	"sync"
@@ -43,11 +45,13 @@ var Run = func() error {
 
 	// Build application dependencies
 	sesService := ses.New(awsSession)
+	snsService := sns.New(awsSession, configService)
 	mysqlService := mysql.New(configService)
 	dynamoDbService := dynamodb.New(awsSession, configService)
 	datastoreService := datastore.New(dynamoDbService, mysqlService)
+	eventPublisherService := eventpub.New(snsService, configService)
 	userService := user.New(datastoreService)
-	emailService := email.New(sesService, datastoreService, loggerService)
+	emailService := email.New(sesService, datastoreService, loggerService, eventPublisherService)
 	platformEventHandler := handler.New(emailService, userService)
 	eventRouter = NewRouter(platformEventHandler, loggerService)
 
