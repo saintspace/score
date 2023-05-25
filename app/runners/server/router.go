@@ -51,6 +51,7 @@ func (s *Router) GetRouter() *gin.Engine {
 	return r
 }
 
+// Placeholder for figuring out JWT validation
 func getEmailFromAuthorizationHeader(authHeader string, jwkURL string) (email string, err error) {
 	const BearerSchema = "Bearer "
 	if authHeader == "" {
