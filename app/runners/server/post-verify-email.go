@@ -1,4 +1,4 @@
-package handler
+package server
 
 import (
 	"net/http"
@@ -11,10 +11,10 @@ type PostVerifyEmailRequestData struct {
 	SubscriptionToken string `json:"token"`
 }
 
-func (s *RouteHandler) PostVerifyEmailHandler(c *gin.Context) {
+func (s *Server) PostVerifyEmailHandler(c *gin.Context) {
 	var data PostVerifyEmailRequestData
 	if err := c.ShouldBindJSON(&data); err != nil {
-		s.loggerService.ErrorWithContext(
+		s.logger.ErrorWithContext(
 			"error while parsing PostVerifyEmailHandler request",
 			"error", err.Error(),
 		)
@@ -23,7 +23,7 @@ func (s *RouteHandler) PostVerifyEmailHandler(c *gin.Context) {
 	}
 	unescapedSubscriptionToken, err := url.QueryUnescape(data.SubscriptionToken)
 	if err != nil {
-		s.loggerService.ErrorWithContext(
+		s.logger.ErrorWithContext(
 			"error while unescaping email verification token",
 			"error", err.Error(),
 			"token", data.SubscriptionToken,
@@ -33,7 +33,7 @@ func (s *RouteHandler) PostVerifyEmailHandler(c *gin.Context) {
 	}
 	err = s.emailService.VerifyEmailWithSubscriptionToken(unescapedSubscriptionToken)
 	if err != nil {
-		s.loggerService.ErrorWithContext(
+		s.logger.ErrorWithContext(
 			"error while verifying email",
 			"error", err.Error(),
 			"token", unescapedSubscriptionToken,

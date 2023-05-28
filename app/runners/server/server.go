@@ -1,32 +1,70 @@
 package server
 
 import (
-	"embed"
-	"fmt"
 	"io/fs"
 	"log"
 	"net/http"
+	"strings"
+
+	"github.com/gin-gonic/gin"
 )
 
-var Run = func(webapp embed.FS) error {
-	fmt.Println("Running server...")
+type Server struct {
+	emailService     EmailService
+	logger           Logger
+	webAppFileSystem fs.FS
+}
 
-	fsys, err := fs.Sub(webapp, "dist")
+func New(emailService EmailService, logger Logger, webAppFileSystem fs.FS) *Server {
+	return &Server{
+		emailService:     emailService,
+		logger:           logger,
+		webAppFileSystem: webAppFileSystem,
+	}
+}
+
+type EmailService interface {
+	CreateEmailSubscription(email string) error
+	EmailSubscriptionExists(email string) (bool, error)
+	IsValidEmail(email string) bool
+	VerifyEmailWithSubscriptionToken(token string) error
+}
+
+type Logger interface {
+	InfoWithContext(message string, keysAndValues ...interface{})
+	ErrorWithContext(message string, keysAndValues ...interface{})
+	DebugWithContext(message string, keysAndValues ...interface{})
+}
+
+func (s *Server) Run() error {
+	fsys, err := fs.Sub(s.webAppFileSystem, "dist")
 	if err != nil {
 		log.Fatal(err)
 	}
+	weAppFileSystemHandler := http.FileServer(http.FS(fsys))
 
-	http.HandleFunc("/api", func(w http.ResponseWriter, r *http.Request) {
-		// Handle API requests here
-		fmt.Fprintf(w, "Hello from the API!")
+	r := gin.Default()
+
+	apiv1 := r.Group("/api/v1")
+	{
+		apiv1.POST("/email-subscriptions", s.PostEmailSubscriptionsHandler)
+		apiv1.POST("/email-verifications", s.PostVerifyEmailHandler)
+		apiv1.DELETE("/account", s.DeleteAccountHandler)
+	}
+
+	r.NoRoute(func(c *gin.Context) {
+		path := strings.TrimPrefix(c.Request.URL.Path, "/")
+		if path == "" {
+			path = "index.html"
+		}
+		_, err := fsys.Open(path)
+		if err != nil {
+			c.Request.URL.Path = "/"
+		} else {
+			// TODO: Cache that this path exists and doesn't not need to be checked again.
+		}
+		weAppFileSystemHandler.ServeHTTP(c.Writer, c.Request)
 	})
 
-	http.Handle("/", http.FileServer(http.FS(fsys)))
-
-	log.Println("Listening on :3000...")
-	err = http.ListenAndServe(":3000", nil)
-	if err != nil {
-		log.Fatal(err)
-	}
-	return err
+	return r.Run(":3000") // Listen and serve on :3000
 }

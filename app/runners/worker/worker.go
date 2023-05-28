@@ -2,19 +2,10 @@ package worker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
-	"score/app/config"
-	"score/app/logger"
-	"score/app/runners/worker/handler"
-	"score/app/services/aws/dynamodb"
-	"score/app/services/aws/ses"
-	"score/app/services/aws/sns"
-	"score/app/services/datastore"
-	"score/app/services/email"
-	"score/app/services/eventpub"
-	"score/app/services/mysql"
-	"score/app/services/user"
+	"score/app/models"
 	"sync"
 
 	"github.com/aws/aws-lambda-go/events"
@@ -24,88 +15,123 @@ import (
 	"github.com/aws/aws-sdk-go/service/sqs"
 )
 
-var eventRouter *EventRouter
+type Worker struct {
+	emailService EmailService
+	userService  UserService
+	logger       Logger
+}
 
-var Run = func() error {
-	fmt.Println("Running score in worker mode...")
-	awsSession := session.Must(session.NewSessionWithOptions(session.Options{
-		SharedConfigState: session.SharedConfigEnable,
-	}))
-	configService := config.New(awsSession)
-	err := configService.InitializeParameters()
-	if err != nil {
-		return fmt.Errorf("error initializing app config: %v", err.Error())
+func New(emailService EmailService, userService UserService, logger Logger) *Worker {
+	return &Worker{
+		emailService: emailService,
+		userService:  userService,
+		logger:       logger,
 	}
+}
 
-	// Set up the logger
-	loggerService, err := logger.New(false)
+type EmailService interface {
+	SendTemplatedEmail(
+		templateName string,
+		templateParams map[string]string,
+		subjectLine string,
+		senderAddress string,
+		toAddresses []string,
+	) error
+	ProcessEmailComplaint(complainedEmailAddresses []string, complaintDetails string, complaintUnixTime int64) error
+	ProcessEmailBounce(bouncedEmailAddresses []string, bounceType, bounceSubType, bounceDetails string, bounceUnixTime int64) error
+}
+
+type UserService interface {
+	CreateUser(email, cognitoUserName string) error
+}
+
+type Logger interface {
+	InfoWithContext(message string, keysAndValues ...interface{})
+	ErrorWithContext(message string, keysAndValues ...interface{})
+	DebugWithContext(message string, keysAndValues ...interface{})
+}
+
+func (s *Worker) ProcessEvent(eventString string) error {
+	event := models.PlatformEvent{}
+	err := json.Unmarshal([]byte(eventString), &event)
 	if err != nil {
-		return fmt.Errorf("error initializing logger: %v", err.Error())
+		return fmt.Errorf("error parsing event: %s", err.Error())
 	}
-
-	// Build application dependencies
-	sesService := ses.New(awsSession)
-	snsService := sns.New(awsSession, configService)
-	mysqlService := mysql.New(configService)
-	dynamoDbService := dynamodb.New(awsSession, configService)
-	datastoreService := datastore.New(dynamoDbService, mysqlService)
-	eventPublisherService := eventpub.New(snsService, configService)
-	userService := user.New(datastoreService)
-	emailService := email.New(sesService, datastoreService, loggerService, eventPublisherService)
-	platformEventHandler := handler.New(emailService, userService)
-	eventRouter = NewRouter(platformEventHandler, loggerService)
-
-	lambda.Start(lambdaEventHandler)
-
+	if event.EventName == models.PlatformEventNames.EmailBounce || event.EventName == models.PlatformEventNames.EmailComplaint {
+		event.EventDetails = eventString
+	}
+	switch event.EventName {
+	case models.PlatformEventNames.EmailSendTask:
+		err = s.HandleEmailSendTask(event.EventDetails)
+	case models.PlatformEventNames.AccountConfirmationTask:
+		err = s.HandleAccountConfirmationTask(event.EventDetails)
+	case models.PlatformEventNames.EmailBounce:
+		err = s.HandleEmailBounce(event.EventDetails)
+	case models.PlatformEventNames.EmailComplaint:
+		err = s.HandleEmailComplaint(event.EventDetails)
+	default:
+		err = fmt.Errorf("unsupported event name")
+	}
+	if err != nil {
+		s.logger.ErrorWithContext("error processing event", "eventName", event.EventName, "errorMessage", err.Error(), "correlationId", event.CorrelationId)
+		return err
+	}
+	s.logger.InfoWithContext("successfully processed event", "eventName", event.EventName, "eventDetails", event.EventDetails, "correlationId", event.CorrelationId)
 	return nil
 }
 
-func lambdaEventHandler(ctx context.Context, sqsEvent events.SQSEvent) error {
-	var wg sync.WaitGroup
-	errorChan := make(chan error, len(sqsEvent.Records))
+func (s *Worker) Run() error {
+	var lambdaEventHandler = func(ctx context.Context, sqsEvent events.SQSEvent) error {
+		var wg sync.WaitGroup
+		errorChan := make(chan error, len(sqsEvent.Records))
 
-	svc := sqs.New(session.Must(session.NewSession()))
+		svc := sqs.New(session.Must(session.NewSession()))
 
-	for _, sqsMessage := range sqsEvent.Records {
-		wg.Add(1)
-		go func(msg events.SQSMessage) {
-			defer wg.Done()
-			err := eventRouter.ProcessEvent(msg.Body)
-			if err != nil {
-				errorChan <- fmt.Errorf("failed to process message %s: %v", msg.MessageId, err)
-				// Change visibility timeout for failed messages
-				_, changeVisibilityErr := svc.ChangeMessageVisibility(&sqs.ChangeMessageVisibilityInput{
-					QueueUrl:          &msg.EventSourceARN,
-					ReceiptHandle:     &msg.ReceiptHandle,
-					VisibilityTimeout: aws.Int64(0), // Since the message failed, we want it to be immediately visible again
-				})
+		for _, sqsMessage := range sqsEvent.Records {
+			wg.Add(1)
+			go func(msg events.SQSMessage) {
+				defer wg.Done()
+				err := s.ProcessEvent(msg.Body)
+				if err != nil {
+					errorChan <- fmt.Errorf("failed to process message %s: %v", msg.MessageId, err)
+					// Change visibility timeout for failed messages
+					_, changeVisibilityErr := svc.ChangeMessageVisibility(&sqs.ChangeMessageVisibilityInput{
+						QueueUrl:          &msg.EventSourceARN,
+						ReceiptHandle:     &msg.ReceiptHandle,
+						VisibilityTimeout: aws.Int64(0), // Since the message failed, we want it to be immediately visible again
+					})
 
-				if changeVisibilityErr != nil {
-					log.Printf("Error changing visibility of message with ID %s: %v", msg.MessageId, changeVisibilityErr)
+					if changeVisibilityErr != nil {
+						log.Printf("Error changing visibility of message with ID %s: %v", msg.MessageId, changeVisibilityErr)
+					}
+					return
 				}
-				return
-			}
-			svc.DeleteMessage(&sqs.DeleteMessageInput{
-				QueueUrl:      &msg.EventSourceARN,
-				ReceiptHandle: &msg.ReceiptHandle,
-			})
-			if err != nil {
-				log.Printf("Error deleting message with ID %s: %v", msg.MessageId, err)
-			}
-		}(sqsMessage)
+				svc.DeleteMessage(&sqs.DeleteMessageInput{
+					QueueUrl:      &msg.EventSourceARN,
+					ReceiptHandle: &msg.ReceiptHandle,
+				})
+				if err != nil {
+					log.Printf("Error deleting message with ID %s: %v", msg.MessageId, err)
+				}
+			}(sqsMessage)
+		}
+
+		wg.Wait()
+		close(errorChan)
+
+		errorMessages := []string{}
+
+		for err := range errorChan {
+			errorMessages = append(errorMessages, err.Error())
+		}
+		if len(errorMessages) > 0 {
+			return fmt.Errorf("failed to process %d messages: %v", len(errorMessages), errorMessages)
+		}
+
+		return nil
 	}
 
-	wg.Wait()
-	close(errorChan)
-
-	errorMessages := []string{}
-
-	for err := range errorChan {
-		errorMessages = append(errorMessages, err.Error())
-	}
-	if len(errorMessages) > 0 {
-		return fmt.Errorf("failed to process %d messages: %v", len(errorMessages), errorMessages)
-	}
+	lambda.Start(lambdaEventHandler)
 
 	return nil
 }

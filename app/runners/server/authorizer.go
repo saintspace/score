@@ -1,55 +1,14 @@
 package server
 
 import (
-	"context"
 	"fmt"
-	"net/http"
-
 	"strings"
 
+	"context"
+
 	"github.com/dgrijalva/jwt-go"
-	"github.com/gin-gonic/gin"
 	"github.com/lestrrat-go/jwx/jwk"
 )
-
-type Router struct {
-	handler                 RouteHandler
-	config                  Config
-	webAppFileSystemHandler http.Handler
-}
-
-func New(handler RouteHandler, config Config, webAppFileSystemHandler http.Handler) *Router {
-	return &Router{
-		handler:                 handler,
-		config:                  config,
-		webAppFileSystemHandler: webAppFileSystemHandler,
-	}
-}
-
-type RouteHandler interface {
-	PostEmailSubscriptionsHandler(c *gin.Context)
-	PostVerifyEmailHandler(c *gin.Context)
-	DeleteAccountHandler(c *gin.Context)
-}
-
-type Config interface {
-	CorsAllowedOrigins() string
-}
-
-func (s *Router) GetRouter() *gin.Engine {
-	r := gin.Default()
-
-	v1 := r.Group("/v1")
-	{
-		v1.POST("/email-subscriptions", s.handler.PostEmailSubscriptionsHandler)
-		v1.POST("/email-verifications", s.handler.PostVerifyEmailHandler)
-		v1.DELETE("/account", s.handler.DeleteAccountHandler)
-	}
-
-	r.NoRoute(gin.WrapH(s.webAppFileSystemHandler))
-
-	return r
-}
 
 // Placeholder for figuring out JWT validation
 func getEmailFromAuthorizationHeader(authHeader string, jwkURL string) (email string, err error) {

@@ -1,4 +1,4 @@
-package handler
+package server
 
 import (
 	"net/http"
@@ -6,7 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func (s *RouteHandler) DeleteAccountHandler(c *gin.Context) {
+func (s *Server) DeleteAccountHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"message": "account successfully deleted",
 	})

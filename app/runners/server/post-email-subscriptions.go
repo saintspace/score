@@ -1,4 +1,4 @@
-package handler
+package server
 
 import (
 	"net/http"
@@ -10,10 +10,10 @@ type PostEmailSubscriptionRequestData struct {
 	EmailAddress string `json:"email"`
 }
 
-func (s *RouteHandler) PostEmailSubscriptionsHandler(c *gin.Context) {
+func (s *Server) PostEmailSubscriptionsHandler(c *gin.Context) {
 	var data PostEmailSubscriptionRequestData
 	if err := c.ShouldBindJSON(&data); err != nil {
-		s.loggerService.ErrorWithContext(
+		s.logger.ErrorWithContext(
 			"error while parsing PostEmailSubscriptionRequestData",
 			"error", err.Error(),
 		)
@@ -22,7 +22,7 @@ func (s *RouteHandler) PostEmailSubscriptionsHandler(c *gin.Context) {
 	}
 
 	if !s.emailService.IsValidEmail(data.EmailAddress) {
-		s.loggerService.ErrorWithContext(
+		s.logger.ErrorWithContext(
 			"invalid email address",
 			"email", data.EmailAddress,
 		)
@@ -31,7 +31,7 @@ func (s *RouteHandler) PostEmailSubscriptionsHandler(c *gin.Context) {
 	}
 	subscriptionExists, err := s.emailService.EmailSubscriptionExists(data.EmailAddress)
 	if err != nil {
-		s.loggerService.ErrorWithContext(
+		s.logger.ErrorWithContext(
 			"error while checking if email subscription already exists",
 			"error", err.Error(),
 		)
@@ -41,20 +41,20 @@ func (s *RouteHandler) PostEmailSubscriptionsHandler(c *gin.Context) {
 
 	if !subscriptionExists {
 		if err := s.emailService.CreateEmailSubscription(data.EmailAddress); err != nil {
-			s.loggerService.ErrorWithContext(
+			s.logger.ErrorWithContext(
 				"error while creating email subscription",
 				"error", err.Error(),
 			)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error occured while saving your email subscription"})
 			return
 		} else {
-			s.loggerService.InfoWithContext(
+			s.logger.InfoWithContext(
 				"Successfully created email subscription",
 				"email", data.EmailAddress,
 			)
 		}
 	} else {
-		s.loggerService.InfoWithContext(
+		s.logger.InfoWithContext(
 			"Email subscription already exists",
 			"email", data.EmailAddress,
 		)
